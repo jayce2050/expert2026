@@ -1,0 +1,919 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ICT Expert 2026 — Dashboard Tiến Độ</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
+<style>
+:root {
+  --primary: #1E88E5;
+  --primary-light: #E3F2FD;
+  --primary-dark: #1565C0;
+  --success: #34D399;
+  --success-light: #ECFDF5;
+  --success-dark: #065F46;
+  --warning: #F59E0B;
+  --warning-light: #FFFBEB;
+  --warning-dark: #92400E;
+  --danger: #EF4444;
+  --danger-light: #FEF2F2;
+  --danger-dark: #991B1B;
+  --neutral: #64748B;
+  --neutral-light: #F1F5F9;
+  --bg: #F8FAFC;
+  --surface: #FFFFFF;
+  --text: #1E2937;
+  --text-muted: #64748B;
+  --text-xs: #94A3B8;
+  --border: #E2E8F0;
+  --radius: 10px;
+  --radius-sm: 6px;
+  --mono: 'SF Mono','Fira Code','Courier New',monospace;
+  --shadow: 0 1px 3px rgba(0,0,0,0.06), 0 1px 2px rgba(0,0,0,0.04);
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: var(--bg); color: var(--text); font-size: 14px; line-height: 1.5; }
+
+/* SOURCE BADGE */
+#source-badge {
+  position: fixed; top: 14px; right: 16px; z-index: 200;
+  display: flex; align-items: center; gap: 7px;
+  padding: 6px 12px; border-radius: 20px; font-size: 11px; font-weight: 500;
+  background: var(--surface); border: 1px solid var(--border);
+  box-shadow: var(--shadow); cursor: default; transition: all .3s;
+}
+#source-badge .sb-dot { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; }
+#source-badge .sb-dot.green { background: #34D399; animation: blink 2s infinite; }
+#source-badge .sb-dot.blue  { background: #1E88E5; }
+#source-badge .sb-dot.amber { background: #F59E0B; }
+#source-badge .sb-dot.gray  { background: #CBD5E1; }
+#source-badge .sb-dot.red   { background: #EF4444; }
+@keyframes blink { 0%,100%{opacity:1} 50%{opacity:.35} }
+
+/* SHELL */
+.shell { max-width: 1120px; margin: 0 auto; padding: 0 1.25rem 4rem; }
+
+/* STICKY TOP */
+.sticky-top { position: sticky; top: 0; z-index: 50; background: var(--bg); padding-top: 1.5rem; }
+
+/* HEADER */
+.header { margin-bottom: 1rem; padding-right: 180px; }
+.header-eyebrow { font-size: 11px; font-weight: 700; letter-spacing: .1em; text-transform: uppercase; color: var(--primary); margin-bottom: 5px; }
+.header h1 { font-size: 22px; font-weight: 700; color: var(--text); letter-spacing: -.02em; }
+.header-sub { font-size: 13px; color: var(--text-muted); margin-top: 3px; }
+
+/* TABS */
+.tabs { display: flex; border-bottom: 1px solid var(--border); margin-bottom: 0; gap: 0; background: var(--bg); }
+.tab-btn { padding: 9px 20px; font-size: 13px; font-weight: 500; color: var(--text-muted); border: none; background: none; cursor: pointer; border-bottom: 2px solid transparent; margin-bottom: -1px; transition: all .15s; white-space: nowrap; }
+.tab-btn:hover { color: var(--text); }
+.tab-btn.active { color: var(--primary); border-bottom-color: var(--primary); }
+
+/* PAGE CONTENT */
+.page { display: none; animation: fadeIn .15s ease; padding-top: 1.5rem; }
+.page.active { display: block; }
+@keyframes fadeIn { from{opacity:0;transform:translateY(4px)} to{opacity:1;transform:none} }
+
+/* KPI */
+.kpi-row { display: grid; grid-template-columns: repeat(5,1fr); gap: 10px; margin-bottom: 1.25rem; }
+.kpi-card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 14px 16px; box-shadow: var(--shadow); }
+.kpi-card.hi { border-top: 3px solid var(--primary); }
+.kpi-card.ok { border-top: 3px solid var(--success); }
+.kpi-card.warn { border-top: 3px solid var(--warning); }
+.kpi-card.muted { border-top: 3px solid var(--neutral-light); }
+.kpi-label { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: .07em; color: var(--text-muted); margin-bottom: 7px; }
+.kpi-val { font-family: var(--mono); font-size: 28px; font-weight: 700; line-height: 1; color: var(--text); }
+.kpi-sub { font-size: 11px; color: var(--text-xs); margin-top: 4px; }
+
+/* ROADMAP */
+.roadmap-card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 1.25rem 1.5rem; margin-bottom: 1.25rem; box-shadow: var(--shadow); }
+.section-label { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: .08em; color: var(--text-muted); margin-bottom: 1rem; }
+.track-outer { position: relative; padding-top: 4px; }
+.track-bg { position: absolute; top: 19px; left: 16px; right: 16px; height: 3px; background: var(--border); border-radius: 2px; }
+.track-prog { position: absolute; top: 19px; left: 16px; height: 3px; background: linear-gradient(90deg, var(--primary), #42A5F5); border-radius: 2px; transition: width 1s cubic-bezier(.4,0,.2,1); }
+.track-phases { display: flex; justify-content: space-between; position: relative; }
+.track-node { display: flex; flex-direction: column; align-items: center; gap: 8px; flex: 1; }
+.track-circle { width: 34px; height: 34px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 12px; font-weight: 700; border: 2px solid var(--border); background: var(--surface); transition: all .25s; }
+.track-circle.t-done { background: var(--primary); border-color: var(--primary); color: #fff; }
+.track-circle.t-active { background: var(--surface); border-color: var(--primary); color: var(--primary); box-shadow: 0 0 0 4px var(--primary-light); }
+.track-circle.t-pending { color: var(--text-muted); }
+.track-info { text-align: center; }
+.track-name { font-size: 11px; font-weight: 600; color: var(--text); }
+.track-date-label { font-size: 10px; color: var(--text-xs); margin-top: 1px; }
+.track-pct { font-family: var(--mono); font-size: 11px; font-weight: 700; color: var(--primary); }
+
+/* GRID 2 */
+.g2 { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin-bottom: 1.25rem; }
+.card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 1.25rem; box-shadow: var(--shadow); }
+
+/* PERSON */
+.person-item { display: flex; align-items: center; gap: 10px; padding: 8px 0; border-bottom: 1px solid var(--border); }
+.person-item:last-child { border-bottom: none; }
+.avatar { width: 32px; height: 32px; border-radius: 50%; font-size: 10px; font-weight: 700; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
+.person-name-el { font-size: 12px; font-weight: 600; }
+.person-meta-el { font-size: 11px; color: var(--text-muted); }
+.mini-bar { height: 4px; border-radius: 2px; background: var(--border); margin-top: 4px; overflow: hidden; }
+.mini-fill { height: 100%; border-radius: 2px; transition: width .6s; }
+
+/* BADGE */
+.badge { display: inline-flex; align-items: center; padding: 2px 7px; border-radius: 4px; font-size: 10px; font-weight: 700; letter-spacing: .03em; white-space: nowrap; }
+.b-done   { background: var(--success-light); color: var(--success-dark); }
+.b-doing  { background: var(--warning-light); color: var(--warning-dark); }
+.b-pending{ background: var(--neutral-light);  color: var(--neutral); }
+
+/* PHASE TAG */
+.ptag { display: inline-block; font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: .04em; padding: 1px 5px; border-radius: 3px; margin-right: 5px; }
+.pt0 { background:#E3F2FD; color:#1565C0 }
+.pt1 { background:#E8F5E9; color:#2E7D32 }
+.pt2 { background:#FFF3E0; color:#E65100 }
+.pt3 { background:#F3E5F5; color:#6A1B9A }
+.pt4 { background:#FCE4EC; color:#880E4F }
+
+/* FILTER */
+.filter-bar { display: flex; gap: 8px; align-items: center; margin-bottom: 1rem; flex-wrap: wrap; }
+.filter-bar label { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: .06em; color: var(--text-muted); }
+.filter-bar select { font-size: 12px; padding: 5px 9px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--surface); color: var(--text); transition: border-color .15s; }
+.filter-bar select:focus { outline: none; border-color: var(--primary); box-shadow: 0 0 0 3px var(--primary-light); }
+#f-count { margin-left: auto; font-family: var(--mono); font-size: 11px; color: var(--text-muted); }
+
+/* TABLE */
+.table-wrap { overflow-x: auto; border-radius: var(--radius); }
+table { width: 100%; border-collapse: collapse; font-size: 12px; }
+thead th { padding: 9px 10px; background: var(--bg); border-bottom: 1px solid var(--border); font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: .06em; color: var(--text-muted); text-align: left; white-space: nowrap; }
+td { padding: 9px 10px; border-bottom: 1px solid #F1F5F9; vertical-align: top; }
+tbody tr:last-child td { border-bottom: none; }
+tbody tr:hover td { background: #F0F7FF; }
+.task-name { font-weight: 500; }
+
+/* TIMELINE */
+.tl-phase { margin-bottom: 1.5rem; }
+.tl-phase-hdr { display: flex; align-items: center; gap: 8px; padding-bottom: 8px; margin-bottom: 8px; border-bottom: 1px solid var(--border); }
+.tl-ph-dot { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
+.tl-ph-name { font-size: 12px; font-weight: 700; }
+.tl-ph-range { font-size: 11px; color: var(--text-muted); }
+.tl-ph-count { margin-left: auto; font-family: var(--mono); font-size: 10px; font-weight: 700; color: var(--text-muted); }
+.tl-row { display: grid; grid-template-columns: 14px 1fr 110px 110px 90px; gap: 8px; align-items: start; padding: 6px 0; border-bottom: 1px solid #F8FAFC; font-size: 12px; }
+.tl-row:last-child { border-bottom: none; }
+.tl-dot { width: 7px; height: 7px; border-radius: 50%; margin-top: 4px; }
+.dd { background: var(--success); } .dw { background: var(--warning); } .dp { background: #CBD5E1; }
+
+/* INFO GRID */
+.info-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.info-cell { background: var(--bg); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 10px 12px; }
+.info-lbl { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: .06em; color: var(--text-muted); margin-bottom: 3px; }
+.info-val { font-size: 13px; font-weight: 500; }
+
+/* STATUS LEGEND */
+.legend { display: flex; gap: 12px; flex-wrap: wrap; margin-bottom: 10px; font-size: 11px; color: var(--text-muted); }
+.legend-item { display: flex; align-items: center; gap: 5px; }
+.legend-dot { width: 9px; height: 9px; border-radius: 2px; }
+
+/* GANTT */
+.gv-btn { padding:4px 12px; font-size:12px; font-weight:500; border:1px solid var(--border); background:var(--surface); color:var(--text-muted); border-radius:var(--radius-sm); cursor:pointer; transition:all .15s; }
+.gv-btn:hover { color:var(--text); border-color:var(--primary); }
+.gv-btn.active { background:var(--primary); border-color:var(--primary); color:#fff; }
+.gantt-header { display:flex; border-bottom:1px solid var(--border); background:var(--bg); position:sticky; top:0; z-index:10; }
+.gantt-label-col { flex-shrink:0; border-right:1px solid var(--border); }
+.gantt-header-cells { display:flex; }
+.gantt-hcell { flex-shrink:0; text-align:center; font-size:10px; font-weight:700; color:var(--text-muted); padding:6px 2px; border-right:1px solid #F1F5F9; }
+.gantt-hcell.today-col { background:var(--primary-light); color:var(--primary); }
+.gantt-row { display:flex; border-bottom:1px solid #F8FAFC; align-items:center; }
+.gantt-row:hover { background:#F8FBFF; }
+.gantt-row-label { flex-shrink:0; padding:5px 10px; font-size:11px; border-right:1px solid var(--border); display:flex; align-items:center; gap:6px; min-height:34px; }
+.gantt-row-label .rl-name { font-weight:500; color:var(--text); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.gantt-row-label .rl-person { font-size:10px; color:var(--text-muted); white-space:nowrap; }
+.gantt-cells { display:flex; position:relative; align-items:center; min-height:34px; }
+.gantt-cell { flex-shrink:0; height:34px; border-right:1px solid #F8FAFC; }
+.gantt-cell.weekend { background:#FAFAFA; }
+.gantt-cell.today-col { background:#EEF6FF; border-right-color:#BFDBFE; }
+.gantt-bar { position:absolute; height:18px; border-radius:4px; top:8px; display:flex; align-items:center; padding:0 6px; font-size:10px; font-weight:600; color:#fff; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; cursor:default; transition:opacity .15s; z-index:2; }
+.gantt-bar:hover { opacity:.85; filter:brightness(1.05); }
+.gantt-bar.bar-done  { opacity:.9; }
+.gantt-bar.bar-doing { }
+.gantt-bar.bar-pending { opacity:.6; }
+.gantt-today-line { position:absolute; top:0; bottom:0; width:2px; background:var(--primary); opacity:.5; z-index:5; pointer-events:none; }
+.gantt-phase-hdr { display:flex; background:var(--bg); border-bottom:1px solid var(--border); }
+.gantt-phase-label { flex-shrink:0; padding:5px 10px; font-size:10px; font-weight:700; text-transform:uppercase; letter-spacing:.06em; color:var(--text-muted); border-right:1px solid var(--border); }
+.gantt-phase-bar-row { display:flex; align-items:center; }
+.gantt-legend-item { display:flex; align-items:center; gap:5px; font-size:11px; color:var(--text-muted); }
+.gantt-legend-dot { width:10px; height:10px; border-radius:2px; }
+
+@media(max-width:720px){
+  .kpi-row{grid-template-columns:repeat(3,1fr)}
+  .g2{grid-template-columns:1fr}
+  .tl-row{grid-template-columns:14px 1fr 80px}
+  .tl-row .tl-person,.tl-row .badge{display:none}
+  .header{padding-right:0}
+}
+</style>
+</head>
+<body>
+
+<div id="source-badge">
+  <div class="sb-dot gray"></div>
+  <span id="sb-text">Đang tải dữ liệu…</span>
+</div>
+
+<div class="shell">
+  <div class="sticky-top">
+    <div class="header">
+      <div class="header-eyebrow">ICT Expert 2026 · Mùa 2</div>
+      <h1>Dashboard Tiến Độ Chương Trình</h1>
+      <div class="header-sub">"Tinh Thông Kỹ Năng – Dẫn Đầu Công Nghệ" &nbsp;·&nbsp; 15/06 → 14/08/2026</div>
+    </div>
+    <div class="tabs">
+      <button class="tab-btn active" onclick="gotoTab('overview')">Tổng quan</button>
+      <button class="tab-btn" onclick="gotoTab('checklist')">Checklist</button>
+      <button class="tab-btn" onclick="gotoTab('people')">Phụ trách</button>
+      <button class="tab-btn" onclick="gotoTab('gantt')">Gantt</button>
+    </div>
+  </div>
+
+  <!-- OVERVIEW -->
+  <div class="page active" id="page-overview">
+    <div class="kpi-row">
+      <div class="kpi-card hi"><div class="kpi-label">Tổng tasks</div><div class="kpi-val" id="k-total">—</div><div class="kpi-sub">hạng mục</div></div>
+      <div class="kpi-card ok"><div class="kpi-label">Hoàn thành</div><div class="kpi-val" id="k-done">—</div><div class="kpi-sub" id="k-done-s">—</div></div>
+      <div class="kpi-card warn"><div class="kpi-label">Đang làm</div><div class="kpi-val" id="k-doing">—</div><div class="kpi-sub">đang thực hiện</div></div>
+      <div class="kpi-card muted"><div class="kpi-label">Chưa bắt đầu</div><div class="kpi-val" id="k-pend">—</div><div class="kpi-sub">chưa có trạng thái</div></div>
+      <div class="kpi-card hi"><div class="kpi-label">Tiến độ</div><div class="kpi-val" id="k-pct">—</div><div class="kpi-sub">% hoàn thành</div></div>
+    </div>
+
+    <div class="roadmap-card">
+      <div class="section-label">Lộ trình chương trình</div>
+      <div class="track-outer">
+        <div class="track-bg"></div>
+        <div class="track-prog" id="track-prog" style="width:0%"></div>
+        <div class="track-phases" id="track-phases"></div>
+      </div>
+    </div>
+
+    <div class="g2">
+      <div class="card">
+        <div class="section-label">Tiến độ theo vòng</div>
+        <div style="position:relative;height:220px"><canvas id="c-phase"></canvas></div>
+      </div>
+      <div class="card">
+        <div class="section-label">Phân bố trạng thái</div>
+        <div class="legend" id="status-legend"></div>
+        <div style="position:relative;height:180px"><canvas id="c-status"></canvas></div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="section-label">Thông tin chương trình</div>
+      <div class="info-grid" id="info-grid"></div>
+    </div>
+  </div>
+
+  <!-- CHECKLIST -->
+  <div class="page" id="page-checklist">
+    <div class="filter-bar">
+      <label>Vòng</label>
+      <select id="f-phase" onchange="renderTable()">
+        <option value="">Tất cả</option>
+        <option value="Trước CT">Chuẩn bị</option>
+        <option value="Vòng 1">Vòng 1</option>
+        <option value="Vòng 2">Vòng 2</option>
+        <option value="Vòng 3">Vòng 3</option>
+        <option value="Chung kết">Chung kết</option>
+      </select>
+      <label>Trạng thái</label>
+      <select id="f-status" onchange="renderTable()">
+        <option value="">Tất cả</option>
+        <option value="done">✅ Done</option>
+        <option value="doing">🔄 Đang làm</option>
+        <option value="pending">⏳ Chưa bắt đầu</option>
+      </select>
+      <label>Phụ trách</label>
+      <select id="f-person" onchange="renderTable()"><option value="">Tất cả</option></select>
+      <span id="f-count"></span>
+    </div>
+    <div class="card table-wrap" style="padding:0">
+      <table>
+        <thead><tr>
+          <th style="width:36px;padding-left:14px">#</th>
+          <th>Hạng mục</th>
+          <th style="width:82px">Bắt đầu</th>
+          <th style="width:82px">Kết thúc</th>
+          <th style="width:120px">Phụ trách</th>
+          <th style="width:115px">Trạng thái</th>
+        </tr></thead>
+        <tbody id="t-body"></tbody>
+      </table>
+      <p id="t-empty" style="display:none;text-align:center;padding:3rem;color:var(--text-muted);font-size:13px">Không có dữ liệu phù hợp với bộ lọc</p>
+    </div>
+  </div>
+
+  <!-- PEOPLE -->
+  <div class="page" id="page-people">
+    <div class="g2">
+      <div class="card">
+        <div class="section-label">Số task theo người</div>
+        <div id="person-chart-wrap"><canvas id="c-person"></canvas></div>
+      </div>
+      <div class="card">
+        <div class="section-label">Chi tiết từng người</div>
+        <div id="person-list" style="max-height:420px;overflow-y:auto"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- GANTT -->
+  <div class="page" id="page-gantt">
+    <div class="card" style="padding:1rem 1.25rem">
+      <!-- toolbar -->
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:1rem;flex-wrap:wrap">
+        <span style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.07em;color:var(--text-muted)">Xem theo</span>
+        <div style="display:flex;gap:4px" id="gantt-view-btns">
+          <button class="gv-btn" onclick="setGanttView('day')">Ngày</button>
+          <button class="gv-btn active" onclick="setGanttView('week')">Tuần</button>
+          <button class="gv-btn" onclick="setGanttView('month')">Tháng</button>
+        </div>
+        <div style="margin-left:auto;display:flex;gap:6px;flex-wrap:wrap" id="gantt-legend"></div>
+      </div>
+      <!-- scrollable gantt frame: both axes -->
+      <div id="gantt-frame" style="overflow:auto;max-height:calc(100vh - 220px);border:1px solid var(--border);border-radius:var(--radius-sm)">
+        <div id="gantt-inner"></div>
+      </div>
+      <p style="font-size:11px;color:var(--text-xs);margin-top:8px">← Cuộn ngang để xem toàn bộ timeline</p>
+    </div>
+  </div>
+</div>
+
+<script>
+// ─── CONFIG ───────────────────────────────────────────────────
+const SHEET_ID   = '1bfxvVyBjc6ZkUhM5Syrqy9x-OFY1UKGQ0OpFZK9iOT8';
+const XLSX_FILE  = './data.xlsx';
+const LS_KEY     = 'ict_dashboard_cache_v2';
+const REFRESH_MS = 5 * 60 * 1000;
+
+const PHASES = [
+  { key:'Trước CT',  label:'Chuẩn bị',  date:'~15/06',       color:'#1E88E5' },
+  { key:'Vòng 1',    label:'Vòng 1',    date:'30/06–07/07',  color:'#00ACC1' },
+  { key:'Vòng 2',    label:'Vòng 2',    date:'10/07–17/07',  color:'#43A047' },
+  { key:'Vòng 3',    label:'Vòng 3',    date:'24/07–01/08',  color:'#7E57C2' },
+  { key:'Chung kết', label:'Chung kết', date:'14/08/2026',   color:'#E53935' },
+];
+const PTAG = ['pt0','pt1','pt2','pt3','pt4'];
+const PHASE_RANGES = {
+  'Trước CT':'Chuẩn bị – trước 15/06',
+  'Vòng 1':'30/06 – 07/07',
+  'Vòng 2':'10/07 – 17/07',
+  'Vòng 3':'24/07 – 01/08',
+  'Chung kết':'14/08/2026'
+};
+
+let G = { tasks:[], meta:{}, charts:{} };
+
+// ─── STATUS HELPERS ────────────────────────────────────────────
+function stOf(s) {
+  if (!s || s.trim() === '') return 'pending';
+  const l = s.toLowerCase();
+  if (l === 'done' || l === 'xong' || l === 'hoàn thành') return 'done';
+  if (l.includes('thực hiện') || l.includes('đang') || l.includes('in progress')) return 'doing';
+  return 'pending';
+}
+function badgeOf(s) {
+  const t = stOf(s);
+  return t==='done'  ? '<span class="badge b-done">Done</span>'
+       : t==='doing' ? '<span class="badge b-doing">Đang làm</span>'
+       :               '<span class="badge b-pending">Chưa bắt đầu</span>';
+}
+function dotOf(s) {
+  const t = stOf(s);
+  return t==='done'?'dd':t==='doing'?'dw':'dp';
+}
+
+// ─── SOURCE BADGE ──────────────────────────────────────────────
+function setBadge(type, text) {
+  const el  = document.getElementById('source-badge');
+  const dot = el.querySelector('.sb-dot');
+  const sp  = document.getElementById('sb-text');
+  dot.className = 'sb-dot ' + type;
+  sp.textContent = text;
+}
+
+// ─── PARSE GSHEET RESPONSE ────────────────────────────────────
+function parseGSheet(text) {
+  const raw  = text.match(/google\.visualization\.Query\.setResponse\(([\s\S]*)\)/);
+  if (!raw) throw new Error('Invalid GSheet response');
+  const json = JSON.parse(raw[1]);
+  const rows = json.table.rows;
+  const tasks = [];
+  let phase = 'Trước CT';
+  rows.slice(2).forEach(row => {
+    const c = row.c || [];
+    const v = i => c[i]?.v ?? null;
+    const v0 = v(0), v1=v(1), v2=v(2), v3=v(3), v4=v(4), v5=v(5), v6=v(6), v7=v(7);
+    if (typeof v0 === 'string') {
+      const s = v0.trim();
+      if (/Vòng 1|Khởi/i.test(s))             phase = 'Vòng 1';
+      else if (/Vòng 2|Đối Đầu/i.test(s))      phase = 'Vòng 2';
+      else if (/Vòng 3|Bứt|Bức Phá/i.test(s)) phase = 'Vòng 3';
+      else if (/chung kết/i.test(s))            phase = 'Chung kết';
+      else if (/TRƯỚC|chuẩn bị/i.test(s))      phase = 'Trước CT';
+      return;
+    }
+    if (typeof v0 === 'number' && v3) {
+      const fmtDate = d => {
+        if (!d) return '';
+        if (typeof d === 'string' && d.startsWith('Date(')) {
+          const [y,m,day] = d.slice(5,-1).split(',').map(Number);
+          return `${String(day).padStart(2,'0')}/${String(m+1).padStart(2,'0')}/${y}`;
+        }
+        return String(d);
+      };
+      tasks.push({
+        stt: v0, phase,
+        start: fmtDate(v1), end: fmtDate(v2),
+        name:   String(v3).replace(/\n/g,' ').trim(),
+        detail: String(v4||'').replace(/\n/g,' ').trim(),
+        status: String(v5||'').trim(),
+        person: String(v6||'').trim(),
+        note:   String(v7||'').replace(/\n/g,' ').trim(),
+      });
+    }
+  });
+  if (tasks.length < 5) throw new Error('Too few rows parsed');
+  return tasks;
+}
+
+// ─── PARSE XLSX ARRAYBUFFER ──────────────────────────────────
+function parseXlsx(ab) {
+  const wb   = XLSX.read(ab, { type:'array', cellDates:true });
+  const ws   = wb.Sheets['Checklist'];
+  if (!ws) throw new Error('Sheet "Checklist" not found');
+  const rows = XLSX.utils.sheet_to_json(ws, { header:1, raw:false, dateNF:'dd/mm/yyyy' });
+  const tasks = [];
+  let phase = 'Trước CT';
+  const fmtD = v => {
+    if (!v) return '';
+    if (v instanceof Date) return `${String(v.getDate()).padStart(2,'0')}/${String(v.getMonth()+1).padStart(2,'0')}/${v.getFullYear()}`;
+    return String(v).trim();
+  };
+  rows.slice(2).forEach(row => {
+    const [v0,v1,v2,v3,v4,v5,v6,v7] = row;
+    if (typeof v0 === 'string' && !/^\d+$/.test(v0.trim())) {
+      const s = v0.trim();
+      if (/Vòng 1|Khởi/i.test(s))             phase = 'Vòng 1';
+      else if (/Vòng 2|Đối Đầu/i.test(s))      phase = 'Vòng 2';
+      else if (/Vòng 3|Bứt|Bức/i.test(s))     phase = 'Vòng 3';
+      else if (/chung kết/i.test(s))            phase = 'Chung kết';
+      else if (/TRƯỚC|chuẩn bị/i.test(s))      phase = 'Trước CT';
+      return;
+    }
+    const stt = parseFloat(v0);
+    if (!isNaN(stt) && v3) {
+      tasks.push({
+        stt, phase,
+        start: fmtD(v1), end: fmtD(v2),
+        name:   String(v3).replace(/\n/g,' ').trim(),
+        detail: String(v4||'').replace(/\n/g,' ').trim(),
+        status: String(v5||'').trim(),
+        person: String(v6||'').trim(),
+        note:   String(v7||'').replace(/\n/g,' ').trim(),
+      });
+    }
+  });
+  if (tasks.length < 5) throw new Error('Too few rows in xlsx');
+  return tasks;
+}
+
+// ─── LOAD DATA ────────────────────────────────────────────────
+async function loadData() {
+  setBadge('gray', 'Đang kết nối…');
+  const now = () => new Date().toLocaleString('vi-VN',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'});
+
+  // SOURCE 1: Google Sheet
+  try {
+    const url = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/gviz/tq?tqx=out:json&sheet=Checklist&t=${Date.now()}`;
+    const res  = await fetch(url);
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    const tasks = parseGSheet(await res.text());
+    saveCache({ tasks, source:'gsheet', ts: now() });
+    G.tasks = tasks;
+    setBadge('green', `🟢 Google Sheet · Live · ${now()}`);
+    render(); return;
+  } catch(e) { console.warn('GSheet fail:', e.message); }
+
+  // SOURCE 2: data.xlsx (same folder)
+  try {
+    const res = await fetch(XLSX_FILE + '?t=' + Date.now());
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    const ab   = await res.arrayBuffer();
+    const tasks = parseXlsx(ab);
+    saveCache({ tasks, source:'xlsx', ts: now() });
+    G.tasks = tasks;
+    setBadge('blue', `🔵 data.xlsx · ${now()}`);
+    render(); return;
+  } catch(e) { console.warn('XLSX fail:', e.message); }
+
+  // SOURCE 3: localStorage cache
+  try {
+    const cached = loadCache();
+    if (!cached) throw new Error('No cache');
+    G.tasks = cached.tasks;
+    const src = cached.source === 'gsheet' ? 'Google Sheet' : 'data.xlsx';
+    setBadge('amber', `🟡 Cache (${src}) · ${cached.ts}`);
+    render(); return;
+  } catch(e) { console.warn('Cache fail:', e.message); }
+
+  // FAIL
+  setBadge('red', '❌ Không tải được dữ liệu');
+  document.querySelector('.shell').insertAdjacentHTML('afterbegin',
+    `<div style="background:var(--danger-light);border:1px solid var(--danger);border-radius:var(--radius);padding:1rem 1.25rem;margin-bottom:1rem;font-size:13px;color:var(--danger-dark)">
+      <b>Không tải được dữ liệu.</b> Kiểm tra: (1) Google Sheet đã share "Anyone with link can view"? (2) File <code>data.xlsx</code> đã có trong cùng thư mục?
+    </div>`
+  );
+}
+
+function saveCache(obj) {
+  try { localStorage.setItem(LS_KEY, JSON.stringify(obj)); } catch(e){}
+}
+function loadCache() {
+  try { return JSON.parse(localStorage.getItem(LS_KEY)); } catch(e){ return null; }
+}
+
+// ─── RENDER ───────────────────────────────────────────────────
+function render() {
+  renderKPIs();
+  renderRoadmap();
+  buildOverviewCharts();
+  buildPersonFilter();
+  renderTable();
+  // Gantt renders on tab open
+}
+
+function renderKPIs() {
+  const t = G.tasks;
+  const total = t.length;
+  const done  = t.filter(x => stOf(x.status)==='done').length;
+  const doing = t.filter(x => stOf(x.status)==='doing').length;
+  const pend  = t.filter(x => stOf(x.status)==='pending').length;
+  const pct   = total ? Math.round(done/total*100) : 0;
+  document.getElementById('k-total').textContent = total;
+  document.getElementById('k-done').textContent  = done;
+  document.getElementById('k-done-s').textContent= pct + '% tổng';
+  document.getElementById('k-doing').textContent = doing;
+  document.getElementById('k-pend').textContent  = pend;
+  document.getElementById('k-pct').textContent   = pct + '%';
+  document.getElementById('info-grid').innerHTML = [
+    ['Chương trình','HỘI THI TAY NGHỀ ICT EXPERT 2026'],
+    ['Thời gian','15/06/2026 → 14/08/2026'],
+    ['Đối tượng','Kỹ thuật Lv2 & Kiêm nhiệm Lv2'],
+    ['Cấu trúc','4 Vòng (3 Online + 1 Offline)'],
+    ['Tham gia','~526 nhân viên kỹ thuật'],
+    ['Địa điểm CK','TTDT 202 NTMK, P.2, Q.3, HCM'],
+  ].map(([l,v])=>`<div class="info-cell"><div class="info-lbl">${l}</div><div class="info-val">${v}</div></div>`).join('');
+}
+
+function renderRoadmap() {
+  const t = G.tasks;
+  const pcts  = PHASES.map(p => {
+    const all  = t.filter(x=>x.phase===p.key);
+    const done = all.filter(x=>stOf(x.status)==='done').length;
+    return all.length ? Math.round(done/all.length*100) : 0;
+  });
+  const isDone  = pcts.map(p=>p===100);
+  const active  = isDone.findIndex(d=>!d);
+  const overall = isDone.filter(Boolean).length / PHASES.length * 100;
+  document.getElementById('track-prog').style.width = Math.round(overall) + '%';
+  document.getElementById('track-phases').innerHTML = PHASES.map((p,i)=>{
+    const cls = isDone[i]?'t-done':i===active?'t-active':'t-pending';
+    const col = isDone[i]||i===active ? p.color : 'var(--border)';
+    return `<div class="track-node">
+      <div class="track-circle ${cls}" style="${isDone[i]?`background:${p.color};border-color:${p.color}`:''}${i===active?`;border-color:${p.color};color:${p.color};box-shadow:0 0 0 4px ${p.color}22`:''}">
+        ${isDone[i]?'✓':i+1}
+      </div>
+      <div class="track-info">
+        <div class="track-name">${p.label}</div>
+        <div class="track-date-label">${p.date}</div>
+        <div class="track-pct" style="color:${p.color}">${pcts[i]}%</div>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+function buildOverviewCharts() {
+  const t = G.tasks;
+  const labels = PHASES.map(p=>p.label);
+  const done   = PHASES.map(p=>t.filter(x=>x.phase===p.key&&stOf(x.status)==='done').length);
+  const doing  = PHASES.map(p=>t.filter(x=>x.phase===p.key&&stOf(x.status)==='doing').length);
+  const total  = PHASES.map(p=>t.filter(x=>x.phase===p.key).length);
+  const pend   = total.map((v,i)=>v-done[i]-doing[i]);
+
+  if(G.charts.phase) G.charts.phase.destroy();
+  G.charts.phase = new Chart(document.getElementById('c-phase'),{
+    type:'bar',
+    data:{ labels, datasets:[
+      {label:'Done',      data:done,  backgroundColor:'#34D399', borderRadius:3, borderSkipped:false},
+      {label:'Đang làm',  data:doing, backgroundColor:'#F59E0B', borderRadius:0},
+      {label:'Chưa',      data:pend,  backgroundColor:'#E2E8F0', borderRadius:0},
+    ]},
+    options:{responsive:true,maintainAspectRatio:false,
+      plugins:{legend:{display:false}},
+      scales:{x:{stacked:true,grid:{display:false},ticks:{font:{size:11}}},
+              y:{stacked:true,grid:{color:'#F1F5F9'},ticks:{font:{size:11},stepSize:5}}}}
+  });
+
+  const d2=t.filter(x=>stOf(x.status)==='done').length;
+  const w2=t.filter(x=>stOf(x.status)==='doing').length;
+  const p2=t.length-d2-w2;
+  document.getElementById('status-legend').innerHTML=[
+    ['#34D399','Done',d2],['#F59E0B','Đang làm',w2],['#CBD5E1','Chưa bắt đầu',p2]
+  ].map(([c,l,n])=>`<div class="legend-item"><div class="legend-dot" style="background:${c}"></div>${l} <b style="color:var(--text);margin-left:2px">${n}</b></div>`).join('');
+
+  if(G.charts.status) G.charts.status.destroy();
+  G.charts.status = new Chart(document.getElementById('c-status'),{
+    type:'doughnut',
+    data:{ labels:['Done','Đang làm','Chưa'], datasets:[{data:[d2,w2,p2], backgroundColor:['#34D399','#F59E0B','#E2E8F0'], borderWidth:0, hoverOffset:4}] },
+    options:{responsive:true,maintainAspectRatio:false, plugins:{legend:{display:false}}, cutout:'68%'}
+  });
+}
+
+function buildPersonChart() {
+  const map = {};
+  G.tasks.forEach(t=>{
+    if(!t.person)return;
+    t.person.split(/[\/,]/).forEach(p=>{
+      p=p.trim(); if(!p)return;
+      if(!map[p])map[p]={total:0,done:0,doing:0};
+      map[p].total++;
+      const st=stOf(t.status);
+      if(st==='done')map[p].done++;
+      else if(st==='doing')map[p].doing++;
+    });
+  });
+  const sorted=Object.entries(map).sort((a,b)=>b[1].total-a[1].total).slice(0,12);
+  const wrap=document.getElementById('person-chart-wrap');
+  wrap.style.height=(sorted.length*38+60)+'px';
+  if(G.charts.person) G.charts.person.destroy();
+  G.charts.person=new Chart(document.getElementById('c-person'),{
+    type:'bar',
+    data:{ labels:sorted.map(([k])=>k), datasets:[
+      {label:'Done',     data:sorted.map(([,v])=>v.done),                    backgroundColor:'#34D399',borderRadius:2,borderSkipped:false},
+      {label:'Đang làm', data:sorted.map(([,v])=>v.doing),                   backgroundColor:'#F59E0B',borderRadius:0},
+      {label:'Chưa',     data:sorted.map(([,v])=>v.total-v.done-v.doing),    backgroundColor:'#E2E8F0',borderRadius:0},
+    ]},
+    options:{indexAxis:'y',responsive:true,maintainAspectRatio:false,
+      plugins:{legend:{display:false}},
+      scales:{x:{stacked:true,grid:{color:'#F1F5F9'},ticks:{font:{size:10}}},
+              y:{stacked:true,grid:{display:false},ticks:{font:{size:11}}}}}
+  });
+
+  const palette=['#1E88E5','#00ACC1','#43A047','#7E57C2','#E53935','#F4511E','#039BE5','#00897B'];
+  document.getElementById('person-list').innerHTML=sorted.map(([k,v],i)=>{
+    const pct=v.total?Math.round(v.done/v.total*100):0;
+    const c=palette[i%palette.length];
+    const ini=k.replace(/[^A-Za-z]/g,'').slice(0,2).toUpperCase()||k.slice(0,2).toUpperCase();
+    return `<div class="person-item">
+      <div class="avatar" style="background:${c}18;color:${c}">${ini}</div>
+      <div style="flex:1;min-width:0">
+        <div class="person-name-el">${k}</div>
+        <div class="person-meta-el">${v.total} task · ${v.done} done · ${pct}%</div>
+        <div class="mini-bar"><div class="mini-fill" style="width:${pct}%;background:${c}"></div></div>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+function buildPersonFilter() {
+  const people=new Set();
+  G.tasks.forEach(t=>{ if(t.person) t.person.split(/[\/,]/).forEach(p=>people.add(p.trim())); });
+  const sel=document.getElementById('f-person');
+  sel.innerHTML='<option value="">Tất cả</option>'+[...people].sort().map(p=>`<option value="${p}">${p}</option>`).join('');
+}
+
+function renderTable() {
+  const pf  = document.getElementById('f-phase').value;
+  const sf  = document.getElementById('f-status').value;
+  const prf = document.getElementById('f-person').value;
+  let data  = G.tasks;
+  if(pf)  data=data.filter(t=>t.phase===pf);
+  if(sf)  data=data.filter(t=>stOf(t.status)===sf);
+  if(prf) data=data.filter(t=>t.person&&t.person.includes(prf));
+  document.getElementById('f-count').textContent=`${data.length} / ${G.tasks.length} tasks`;
+  document.getElementById('t-body').innerHTML=data.map(t=>`<tr>
+    <td style="padding-left:14px;font-family:var(--mono);font-size:11px;color:var(--text-muted)">${t.stt}</td>
+    <td><span class="ptag ${PTAG[PHASES.findIndex(p=>p.key===t.phase)]||'pt0'}">${t.phase}</span><span class="task-name">${t.name}</span></td>
+    <td style="font-family:var(--mono);font-size:11px;color:var(--text-muted)">${t.start||'—'}</td>
+    <td style="font-family:var(--mono);font-size:11px;color:var(--text-muted)">${t.end||'—'}</td>
+    <td style="font-size:12px;color:var(--text-muted)">${t.person||'—'}</td>
+    <td>${badgeOf(t.status)}</td>
+  </tr>`).join('');
+  document.getElementById('t-empty').style.display=data.length?'none':'block';
+}
+
+// ─── GANTT (verified from gantt_test2) ────────────────────────
+let ganttView = 'week';
+let GANTT_LABEL_W = 224;
+let GANTT_TODAY_X = 0;
+
+function setGanttView(v) {
+  ganttView = v;
+  document.querySelectorAll('.gv-btn').forEach((b,i) =>
+    b.classList.toggle('active', ['day','week','month'][i] === v));
+  renderAndScrollGantt();
+}
+
+function renderAndScrollGantt() {
+  renderGantt();
+  requestAnimationFrame(() => requestAnimationFrame(() => {
+    const frame = document.getElementById('gantt-frame');
+    const fw = frame.clientWidth || 900;
+    frame.scrollLeft = Math.max(0, GANTT_LABEL_W + GANTT_TODAY_X - fw * 0.40);
+  }));
+}
+
+function parseDate(str) {
+  if (!str) return null;
+  const p = str.split('/');
+  if (p.length >= 3) return new Date(+p[2], +p[1]-1, +p[0]);
+  if (p.length === 2) return new Date(2026, +p[1]-1, +p[0]);
+  return null;
+}
+
+function getWeekNum(d) {
+  const dt = new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()));
+  const day = dt.getUTCDay() || 7;
+  dt.setUTCDate(dt.getUTCDate() + 4 - day);
+  const y = new Date(Date.UTC(dt.getUTCFullYear(), 0, 1));
+  return Math.ceil((((dt - y) / 86400000) + 1) / 7);
+}
+
+function renderGantt() {
+  const VI = ['CN','T2','T3','T4','T5','T6','T7'];
+  const today = new Date(); today.setHours(0,0,0,0);
+
+  // ── date range with padding ─────────────────────────────────
+  const progStart = new Date(2026, 4, 27);
+  const progEnd   = new Date(2026, 7, 14);
+  let minD = new Date(progStart), maxD = new Date(progEnd);
+  G.tasks.forEach(t => {
+    const s = parseDate(t.start), e = parseDate(t.end);
+    if (s && s < minD) minD = new Date(s);
+    if (e && e > maxD) maxD = new Date(e);
+  });
+  if (ganttView === 'month') {
+    minD.setMonth(minD.getMonth() - 6);
+    maxD.setMonth(maxD.getMonth() + 6);
+  } else if (ganttView === 'week') {
+    minD.setDate(minD.getDate() - 42);
+    maxD.setDate(maxD.getDate() + 42);
+  } else {
+    minD.setDate(minD.getDate() - 14);
+    maxD.setDate(maxD.getDate() + 14);
+  }
+
+  // ── columns ─────────────────────────────────────────────────
+  const cols = [];
+  if (ganttView === 'day') {
+    for (let d = new Date(minD); d <= maxD; d.setDate(d.getDate()+1))
+      cols.push(new Date(d));
+  } else if (ganttView === 'week') {
+    let c = new Date(minD);
+    const dw = c.getDay() || 7; if (dw > 1) c.setDate(c.getDate() - dw + 1);
+    while (c <= maxD) { cols.push(new Date(c)); c.setDate(c.getDate()+7); }
+  } else {
+    let c = new Date(minD.getFullYear(), minD.getMonth(), 1);
+    while (c <= maxD) { cols.push(new Date(c)); c.setMonth(c.getMonth()+1); }
+  }
+
+  const COL_W  = ganttView==='month' ? 100 : ganttView==='week' ? 90 : 34;
+  const LW     = 224; GANTT_LABEL_W = LW;
+  const ROW_H  = 36;
+  const PH_H   = 30;
+  const gridW  = cols.length * COL_W;
+  const totalW = LW + gridW;
+
+  // ── helpers ─────────────────────────────────────────────────
+  function colIdx(d) {
+    if (!d) return 0;
+    if (ganttView === 'day') return Math.max(0, Math.round((d - minD) / 86400000));
+    for (let i = cols.length-1; i >= 0; i--) if (d >= cols[i]) return i;
+    return 0;
+  }
+  function bWidth(s, e) {
+    const es = e || s;
+    if (ganttView === 'day') return Math.max(COL_W, (Math.round((es-s)/86400000)+1)*COL_W);
+    return Math.max(COL_W, (colIdx(es)-colIdx(s)+1)*COL_W);
+  }
+  function isWE(c) { const d=c.getDay(); return d===0||d===6; }
+  function isTodayCol(c) {
+    if (ganttView==='day') return c.toDateString()===today.toDateString();
+    if (ganttView==='week') { const nx=new Date(c); nx.setDate(nx.getDate()+7); return today>=c&&today<nx; }
+    return c.getFullYear()===today.getFullYear()&&c.getMonth()===today.getMonth();
+  }
+
+  // today X relative to grid start (no label offset)
+  const todayFrac = ganttView==='day' ? 0.5
+    : ganttView==='week' ? ((today.getDay()||7)-1)/7
+    : (today.getDate()-1)/30;
+  const todayX = colIdx(today)*COL_W + COL_W*todayFrac;
+  GANTT_TODAY_X = todayX;
+
+  // today stripe + line — reused in every row
+  const todayColLeft = colIdx(today) * COL_W;
+  const todayStripe = `<div style="position:absolute;left:${todayColLeft}px;width:${COL_W}px;top:0;bottom:0;background:#EEF6FF;pointer-events:none;z-index:0"></div>`;
+  const todayLine   = `<div style="position:absolute;left:${Math.round(todayX)}px;top:0;bottom:0;width:2px;background:var(--primary);opacity:0.4;pointer-events:none;z-index:3"></div>`;
+
+  // ── legend ──────────────────────────────────────────────────
+  document.getElementById('gantt-legend').innerHTML = PHASES.map(p =>
+    `<div class="gantt-legend-item"><div class="gantt-legend-dot" style="background:${p.color}"></div>${p.label}</div>`
+  ).join('');
+
+  // ── header ──────────────────────────────────────────────────
+  let hR1='', hR2='';
+  if (ganttView === 'day') {
+    let i = 0;
+    while (i < cols.length) {
+      const wn = getWeekNum(cols[i]); let sp = 0;
+      while (i+sp < cols.length && getWeekNum(cols[i+sp])===wn) sp++;
+      hR1 += `<div style="width:${sp*COL_W}px;flex-shrink:0;text-align:center;font-size:9px;font-weight:700;color:var(--text-muted);padding:2px;border-right:1px solid var(--border)">W${wn} · ${String(cols[i].getDate()).padStart(2,'0')}/${cols[i].getMonth()+1}</div>`;
+      i += sp;
+    }
+    hR2 = cols.map(c => {
+      const we=isWE(c), to=isTodayCol(c);
+      return `<div style="width:${COL_W}px;flex-shrink:0;text-align:center;font-size:9px;font-weight:700;line-height:1.4;padding:2px 0;border-right:1px solid #EEE;background:${to?'var(--primary-light)':we?'#F0F0F0':'transparent'};color:${to?'var(--primary)':we?'#94A3B8':'var(--text-muted)'}"><div>${VI[c.getDay()]}</div><div>${c.getDate()}</div></div>`;
+    }).join('');
+  } else if (ganttView === 'week') {
+    hR2 = cols.map(c => {
+      const to=isTodayCol(c);
+      return `<div style="width:${COL_W}px;flex-shrink:0;text-align:center;font-size:10px;font-weight:700;line-height:1.5;padding:4px 2px;border-right:1px solid #EEE;background:${to?'var(--primary-light)':'transparent'};color:${to?'var(--primary)':'var(--text-muted)'}"><div>W${getWeekNum(c)}</div><div style="font-size:9px;font-weight:400">${String(c.getDate()).padStart(2,'0')}/${c.getMonth()+1}</div></div>`;
+    }).join('');
+  } else {
+    hR2 = cols.map(c => {
+      const to=isTodayCol(c);
+      return `<div style="width:${COL_W}px;flex-shrink:0;text-align:center;font-size:11px;font-weight:700;padding:7px 2px;border-right:1px solid #EEE;background:${to?'var(--primary-light)':'transparent'};color:${to?'var(--primary)':'var(--text-muted)'}">Th${c.getMonth()+1}</div>`;
+    }).join('');
+  }
+
+  const hdr = `<div style="display:flex;position:sticky;top:0;z-index:20;background:var(--bg);border-bottom:1px solid var(--border);width:${totalW}px">
+    <div style="width:${LW}px;flex-shrink:0;padding:6px 10px;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--text-muted);border-right:1px solid var(--border);position:sticky;left:0;background:var(--bg);z-index:21">Hạng mục</div>
+    <div style="width:${gridW}px;flex-shrink:0;display:flex;flex-direction:column">
+      ${hR1 ? `<div style="display:flex;border-bottom:1px solid var(--border)">${hR1}</div>` : ''}
+      <div style="display:flex">${hR2}</div>
+    </div>
+  </div>`;
+
+  // ── rows ────────────────────────────────────────────────────
+  let rows = '';
+  PHASES.forEach(ph => {
+    const phTasks = G.tasks.filter(t => t.phase === ph.key);
+    if (!phTasks.length) return;
+
+    // phase header row
+    rows += `<div style="display:flex;width:${totalW}px;height:${PH_H}px;border-bottom:1px solid var(--border)">
+      <div style="width:${LW}px;flex-shrink:0;padding:0 10px;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:${ph.color};background:${ph.color}0f;border-right:1px solid var(--border);display:flex;align-items:center;position:sticky;left:0;z-index:5">${ph.label}</div>
+      <div style="width:${gridW}px;flex-shrink:0;padding:0 10px;font-size:10px;color:var(--text-xs);background:${ph.color}06;display:flex;align-items:center">${PHASE_RANGES[ph.key]}</div>
+    </div>`;
+
+    phTasks.forEach(t => {
+      const s  = parseDate(t.start), e = parseDate(t.end)||s;
+      const st = stOf(t.status);
+      const barBg = st==='done' ? ph.color : st==='doing' ? '#F59E0B' : ph.color+'80';
+      const barOp = st==='pending' ? '0.5' : '1';
+      const bL = s ? colIdx(s)*COL_W : -999;
+      const bW = s ? bWidth(s,e) : 0;
+      const barLabel = bW > 52 ? `<span style="display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:${bW-12}px">${t.name}</span>` : '';
+
+      rows += `<div style="display:flex;width:${totalW}px;height:${ROW_H}px;border-bottom:1px solid #F5F7FA" onmouseenter="this.style.background='#F4F8FF';this.querySelector('.g-sticky').style.background='#F4F8FF'" onmouseleave="this.style.background='';this.querySelector('.g-sticky').style.background='var(--surface)'">
+        <div class="g-sticky" style="width:${LW}px;flex-shrink:0;height:${ROW_H}px;display:flex;align-items:center;gap:6px;padding:0 8px;border-right:1px solid var(--border);background:var(--surface);position:sticky;left:0;z-index:5">
+          <div class="tl-dot ${dotOf(t.status)}" style="flex-shrink:0"></div>
+          <div style="min-width:0">
+            <div style="font-size:11px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:${LW-52}px;color:var(--text)" title="${t.name}">${t.name}</div>
+            <div style="font-size:10px;color:var(--text-muted)">${t.person||''}</div>
+          </div>
+        </div>
+        <div style="position:relative;width:${gridW}px;flex-shrink:0;height:${ROW_H}px;overflow:hidden">
+          ${todayStripe}
+          ${s ? `<div style="position:absolute;left:${bL}px;width:${bW}px;height:20px;top:8px;border-radius:4px;background:${barBg};opacity:${barOp};display:flex;align-items:center;padding:0 5px;font-size:10px;font-weight:600;color:#fff;z-index:2;overflow:hidden;cursor:default" title="${t.name}${t.start?' · '+t.start:''}${t.end?' → '+t.end:''}">${barLabel}</div>` : ''}
+          ${todayLine}
+        </div>
+      </div>`;
+    });
+  });
+
+  const inner = document.getElementById('gantt-inner');
+  inner.style.width = totalW + 'px';
+  inner.innerHTML = hdr + rows;
+}
+
+function gotoTab(name) {
+  document.querySelectorAll('.tab-btn').forEach((b,i) =>
+    b.classList.toggle('active', ['overview','checklist','people','gantt'][i]===name));
+  document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+  document.getElementById('page-'+name).classList.add('active');
+  if (name === 'people') buildPersonChart();
+  if (name === 'gantt')  renderAndScrollGantt();
+}
+
+// ─── BOOT ─────────────────────────────────────────────────────
+loadData();
+setInterval(loadData, REFRESH_MS);
+</script>
+</body>
+</html>
