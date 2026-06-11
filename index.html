@@ -200,6 +200,26 @@ tbody tr:hover td { background: #F0F7FF; }
 .gantt-legend-item { display:flex; align-items:center; gap:5px; font-size:11px; color:var(--text-muted); }
 .gantt-legend-dot { width:10px; height:10px; border-radius:2px; }
 
+/* GANTT TOOLTIP */
+#g-tooltip {
+  position: fixed; z-index: 9999; pointer-events: none;
+  background: var(--surface); border: 0.5px solid var(--border);
+  border-radius: var(--radius); width: 260px;
+  box-shadow: 0 4px 16px rgba(0,0,0,.10);
+  opacity: 0; transition: opacity .12s; font-size: 12px;
+}
+#g-tooltip.visible { opacity: 1; }
+.gtt-header { padding: 10px 14px 8px; border-bottom: 0.5px solid var(--border); }
+.gtt-title { font-size: 13px; font-weight: 500; color: var(--text); margin-bottom: 5px; line-height: 1.3; }
+.gtt-badges { display: flex; align-items: center; gap: 6px; }
+.gtt-phase { display: inline-flex; align-items: center; gap: 4px; font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: .05em; padding: 2px 6px; border-radius: 3px; }
+.gtt-body { padding: 8px 14px; }
+.gtt-row { display: flex; align-items: flex-start; gap: 8px; padding: 3px 0; color: var(--text-muted); }
+.gtt-row i { font-size: 14px; flex-shrink: 0; margin-top: 1px; }
+.gtt-lbl { flex-shrink: 0; }
+.gtt-val { color: var(--text); margin-left: auto; text-align: right; }
+.gtt-detail { font-size: 11px; color: var(--text-muted); line-height: 1.5; padding-top: 6px; border-top: 0.5px solid var(--border); margin-top: 4px; }
+
 @media(max-width:720px){
   .kpi-row{grid-template-columns:repeat(3,1fr)}
   .g2{grid-template-columns:1fr}
@@ -211,9 +231,32 @@ tbody tr:hover td { background: #F0F7FF; }
 </head>
 <body>
 
-<div id="source-badge">
+<div id="source-badge" title="Nhấn để mở Google Sheet" style="cursor:pointer" onclick="badgeClick()">
   <div class="sb-dot gray"></div>
   <span id="sb-text">Đang tải dữ liệu…</span>
+</div>
+
+<div id="g-tooltip">
+  <div class="gtt-header">
+    <div class="gtt-title" id="gtt-name"></div>
+    <div class="gtt-badges">
+      <span class="gtt-phase" id="gtt-phase"></span>
+      <span class="badge" id="gtt-status"></span>
+    </div>
+  </div>
+  <div class="gtt-body">
+    <div class="gtt-row" id="gtt-date-row">
+      <i class="ti ti-calendar" aria-hidden="true"></i>
+      <span class="gtt-lbl">Thời gian</span>
+      <span class="gtt-val" id="gtt-date"></span>
+    </div>
+    <div class="gtt-row" id="gtt-person-row">
+      <i class="ti ti-user" aria-hidden="true"></i>
+      <span class="gtt-lbl">Phụ trách</span>
+      <span class="gtt-val" id="gtt-person"></span>
+    </div>
+    <div class="gtt-detail" id="gtt-detail"></div>
+  </div>
 </div>
 
 <div class="shell">
@@ -334,6 +377,7 @@ tbody tr:hover td { background: #F0F7FF; }
         </div>
         <div style="margin-left:auto;display:flex;gap:6px;flex-wrap:wrap" id="gantt-legend"></div>
       </div>
+      <code id="gantt-debug" style="display:block;font-size:10px;color:var(--danger);font-family:var(--mono);margin-bottom:6px;min-height:14px"></code>
       <!-- scrollable gantt frame: both axes -->
       <div id="gantt-frame" style="overflow:auto;max-height:calc(100vh - 220px);border:1px solid var(--border);border-radius:var(--radius-sm)">
         <div id="gantt-inner"></div>
@@ -397,47 +441,99 @@ function setBadge(type, text) {
 }
 
 // ─── PARSE GSHEET RESPONSE ────────────────────────────────────
-function parseGSheet(text) {
-  const raw  = text.match(/google\.visualization\.Query\.setResponse\(([\s\S]*)\)/);
-  if (!raw) throw new Error('Invalid GSheet response');
-  const json = JSON.parse(raw[1]);
-  const rows = json.table.rows;
+async function fetchGSheet() {
+  // Use CSV export — GViz JSON returns null for plain-text cells (known API bug)
+  const url = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/gviz/tq?tqx=out:csv&sheet=Checklist&t=${Date.now()}`;
+  const res = await fetch(url);
+  if (!res.ok) throw new Error('HTTP ' + res.status);
+  const text = await res.text();
+  return parseGSheetCSV(text);
+}
+
+function parseGSheetCSV(csv) {
+  // Proper CSV parser — reads char by char so multi-line quoted fields work correctly
+  function parseCSV(text) {
+    const records = [];
+    let row = [], cur = '', inQ = false, i = 0;
+    while (i < text.length) {
+      const ch = text[i];
+      if (inQ) {
+        if (ch === '"') {
+          if (text[i+1] === '"') { cur += '"'; i += 2; continue; } // escaped quote
+          else { inQ = false; i++; continue; } // end quote
+        }
+        cur += ch; i++; // include newlines inside quoted fields
+      } else {
+        if (ch === '"') { inQ = true; i++; continue; }
+        if (ch === ',') { row.push(cur.trim()); cur = ''; i++; continue; }
+        if (ch === '\r' && text[i+1] === '\n') { row.push(cur.trim()); records.push(row); row = []; cur = ''; i += 2; continue; }
+        if (ch === '\n') { row.push(cur.trim()); records.push(row); row = []; cur = ''; i++; continue; }
+        cur += ch; i++;
+      }
+    }
+    if (cur || row.length) { row.push(cur.trim()); records.push(row); }
+    return records;
+  }
+
+  const records = parseCSV(csv);
+
+  // Find the data header row (contains "STT" or "Bắt đầu") to determine start
+  let dataStart = 0;
+  for (let i = 0; i < Math.min(5, records.length); i++) {
+    const r = records[i].map(c => c.toLowerCase());
+    if (r.some(c => c.includes('b') && c.includes('t') && c.includes('u')) ||
+        r.some(c => c === 'stt')) {
+      dataStart = i + 1; break;
+    }
+  }
+
   const tasks = [];
   let phase = 'Trước CT';
-  rows.slice(2).forEach(row => {
-    const c = row.c || [];
-    const v = i => c[i]?.v ?? null;
-    const v0 = v(0), v1=v(1), v2=v(2), v3=v(3), v4=v(4), v5=v(5), v6=v(6), v7=v(7);
-    if (typeof v0 === 'string') {
-      const s = v0.trim();
-      if (/Vòng 1|Khởi/i.test(s))             phase = 'Vòng 1';
-      else if (/Vòng 2|Đối Đầu/i.test(s))      phase = 'Vòng 2';
-      else if (/Vòng 3|Bứt|Bức Phá/i.test(s)) phase = 'Vòng 3';
-      else if (/chung kết/i.test(s))            phase = 'Chung kết';
-      else if (/TRƯỚC|chuẩn bị/i.test(s))      phase = 'Trước CT';
-      return;
+
+  for (let li = dataStart; li < records.length; li++) {
+    const cols = records[li];
+    const v0 = (cols[0]||'').trim();
+    const v1 = (cols[1]||'').trim();  // Bắt đầu
+    const v2 = (cols[2]||'').trim();  // Kết thúc
+    const v3 = (cols[3]||'').trim();  // Hạng mục
+    const v4 = (cols[4]||'').trim();  // Chi tiết
+    const v5 = (cols[5]||'').trim();  // Tình trạng
+    const v6 = (cols[6]||'').trim();  // Phụ trách
+
+    if (!v0) continue;
+
+    if (!/^\d+$/.test(v0)) {
+      if (/Vòng 1|Khởi/i.test(v0))          phase = 'Vòng 1';
+      else if (/Vòng 2|Đối Đầu/i.test(v0))  phase = 'Vòng 2';
+      else if (/Vòng 3|Bứt|Bức/i.test(v0)) phase = 'Vòng 3';
+      else if (/chung kết/i.test(v0))        phase = 'Chung kết';
+      else if (/TRƯỚC|chuẩn bị/i.test(v0))  phase = 'Trước CT';
+      continue;
     }
-    if (typeof v0 === 'number' && v3) {
-      const fmtDate = d => {
-        if (!d) return '';
-        if (typeof d === 'string' && d.startsWith('Date(')) {
-          const [y,m,day] = d.slice(5,-1).split(',').map(Number);
-          return `${String(day).padStart(2,'0')}/${String(m+1).padStart(2,'0')}/${y}`;
-        }
-        return String(d);
-      };
+
+    if (v3) {
       tasks.push({
-        stt: v0, phase,
-        start: fmtDate(v1), end: fmtDate(v2),
-        name:   String(v3).replace(/\n/g,' ').trim(),
-        detail: String(v4||'').replace(/\n/g,' ').trim(),
-        status: String(v5||'').trim(),
-        person: String(v6||'').trim(),
-        note:   String(v7||'').replace(/\n/g,' ').trim(),
+        stt: parseInt(v0), phase,
+        start: v1, end: v2,
+        name: v3, detail: v4,
+        status: v5, person: v6, note: '',
       });
     }
-  });
-  if (tasks.length < 5) throw new Error('Too few rows parsed');
+  }
+  /* DEBUG — uncomment to diagnose date parsing issues
+  if (tasks.length > 0) {
+    let rawCols = [];
+    for (let li = dataStart; li < records.length; li++) {
+      const cols = records[li];
+      if ((cols[0]||'').trim() === '1') { rawCols = cols; break; }
+    }
+    const dbg = `[DEBUG] cols: ${rawCols.slice(0,8).map((c,i)=>`[${i}]="${(c||'').slice(0,12)}"`).join(' ')}`;
+    console.log(dbg);
+    setTimeout(() => { const el = document.getElementById('gantt-debug'); if (el) el.textContent = dbg; }, 100);
+  }
+  */
+
+  if (tasks.length < 5) throw new Error('Too few rows: ' + tasks.length);
   return tasks;
 }
 
@@ -487,12 +583,9 @@ async function loadData() {
   setBadge('gray', 'Đang kết nối…');
   const now = () => new Date().toLocaleString('vi-VN',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'});
 
-  // SOURCE 1: Google Sheet
+  // SOURCE 1: Google Sheet (CSV — GViz JSON returns null for plain-text date cells)
   try {
-    const url = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/gviz/tq?tqx=out:json&sheet=Checklist&t=${Date.now()}`;
-    const res  = await fetch(url);
-    if (!res.ok) throw new Error('HTTP ' + res.status);
-    const tasks = parseGSheet(await res.text());
+    const tasks = await fetchGSheet();
     saveCache({ tasks, source:'gsheet', ts: now() });
     G.tasks = tasks;
     setBadge('green', `🟢 Google Sheet · Live · ${now()}`);
@@ -634,17 +727,25 @@ function buildOverviewCharts() {
   });
 }
 
+// ─── OVERDUE HELPER ──────────────────────────────────────────
+function isOverdue(task) {
+  const today = new Date(); today.setHours(0,0,0,0);
+  const e = parseDate(task.end);
+  return stOf(task.status) !== 'done' && e && e < today;
+}
+
 function buildPersonChart() {
   const map = {};
   G.tasks.forEach(t=>{
     if(!t.person)return;
     t.person.split(/[\/,]/).forEach(p=>{
       p=p.trim(); if(!p)return;
-      if(!map[p])map[p]={total:0,done:0,doing:0};
+      if(!map[p])map[p]={total:0,done:0,doing:0,overdue:0};
       map[p].total++;
       const st=stOf(t.status);
       if(st==='done')map[p].done++;
       else if(st==='doing')map[p].doing++;
+      if(isOverdue(t))map[p].overdue++;
     });
   });
   const sorted=Object.entries(map).sort((a,b)=>b[1].total-a[1].total).slice(0,12);
@@ -654,9 +755,10 @@ function buildPersonChart() {
   G.charts.person=new Chart(document.getElementById('c-person'),{
     type:'bar',
     data:{ labels:sorted.map(([k])=>k), datasets:[
-      {label:'Done',     data:sorted.map(([,v])=>v.done),                    backgroundColor:'#34D399',borderRadius:2,borderSkipped:false},
-      {label:'Đang làm', data:sorted.map(([,v])=>v.doing),                   backgroundColor:'#F59E0B',borderRadius:0},
-      {label:'Chưa',     data:sorted.map(([,v])=>v.total-v.done-v.doing),    backgroundColor:'#E2E8F0',borderRadius:0},
+      {label:'Done',     data:sorted.map(([,v])=>v.done),                              backgroundColor:'#34D399',borderRadius:2,borderSkipped:false},
+      {label:'Đang làm', data:sorted.map(([,v])=>v.doing),                             backgroundColor:'#F59E0B',borderRadius:0},
+      {label:'Quá hạn',  data:sorted.map(([,v])=>v.overdue),                           backgroundColor:'#EF4444',borderRadius:0},
+      {label:'Chưa',     data:sorted.map(([,v])=>Math.max(0,v.total-v.done-v.doing)),  backgroundColor:'#E2E8F0',borderRadius:0},
     ]},
     options:{indexAxis:'y',responsive:true,maintainAspectRatio:false,
       plugins:{legend:{display:false}},
@@ -669,12 +771,26 @@ function buildPersonChart() {
     const pct=v.total?Math.round(v.done/v.total*100):0;
     const c=palette[i%palette.length];
     const ini=k.replace(/[^A-Za-z]/g,'').slice(0,2).toUpperCase()||k.slice(0,2).toUpperCase();
+    const overdueTag = v.overdue > 0
+      ? `<span style="font-size:10px;font-weight:700;color:#EF4444;margin-left:6px">⚠ ${v.overdue} quá hạn</span>`
+      : '';
+    const doneW    = v.total ? v.done/v.total*100 : 0;
+    const doingW   = v.total ? v.doing/v.total*100 : 0;
+    const overdueW = v.total ? v.overdue/v.total*100 : 0;
+    const pendW    = Math.max(0, 100 - doneW - doingW);
     return `<div class="person-item">
       <div class="avatar" style="background:${c}18;color:${c}">${ini}</div>
       <div style="flex:1;min-width:0">
-        <div class="person-name-el">${k}</div>
-        <div class="person-meta-el">${v.total} task · ${v.done} done · ${pct}%</div>
-        <div class="mini-bar"><div class="mini-fill" style="width:${pct}%;background:${c}"></div></div>
+        <div style="display:flex;align-items:center;flex-wrap:wrap">
+          <span class="person-name-el">${k}</span>${overdueTag}
+        </div>
+        <div class="person-meta-el">${v.total} task · ${v.done} done · ${v.doing} đang · ${pct}%</div>
+        <div class="mini-bar" style="display:flex;overflow:hidden">
+          <div style="height:100%;width:${doneW}%;background:#34D399;transition:width .6s"></div>
+          <div style="height:100%;width:${doingW}%;background:#F59E0B"></div>
+          <div style="height:100%;width:${overdueW}%;background:#EF4444"></div>
+          <div style="height:100%;flex:1;background:#E2E8F0"></div>
+        </div>
       </div>
     </div>`;
   }).join('');
@@ -696,14 +812,21 @@ function renderTable() {
   if(sf)  data=data.filter(t=>stOf(t.status)===sf);
   if(prf) data=data.filter(t=>t.person&&t.person.includes(prf));
   document.getElementById('f-count').textContent=`${data.length} / ${G.tasks.length} tasks`;
-  document.getElementById('t-body').innerHTML=data.map(t=>`<tr>
-    <td style="padding-left:14px;font-family:var(--mono);font-size:11px;color:var(--text-muted)">${t.stt}</td>
-    <td><span class="ptag ${PTAG[PHASES.findIndex(p=>p.key===t.phase)]||'pt0'}">${t.phase}</span><span class="task-name">${t.name}</span></td>
-    <td style="font-family:var(--mono);font-size:11px;color:var(--text-muted)">${t.start||'—'}</td>
-    <td style="font-family:var(--mono);font-size:11px;color:var(--text-muted)">${t.end||'—'}</td>
-    <td style="font-size:12px;color:var(--text-muted)">${t.person||'—'}</td>
-    <td>${badgeOf(t.status)}</td>
-  </tr>`).join('');
+  document.getElementById('t-body').innerHTML=data.map(t=>{
+    const ovd = isOverdue(t);
+    const endStyle = ovd ? 'font-family:var(--mono);font-size:11px;color:#EF4444;font-weight:600' : 'font-family:var(--mono);font-size:11px;color:var(--text-muted)';
+    const statusCell = ovd
+      ? `<span class="badge" style="background:#FEF2F2;color:#991B1B">⚠ Quá hạn</span>`
+      : badgeOf(t.status);
+    return `<tr${ovd?' style="background:#FFFAFA"':''}>
+      <td style="padding-left:14px;font-family:var(--mono);font-size:11px;color:var(--text-muted)">${t.stt}</td>
+      <td><span class="ptag ${PTAG[PHASES.findIndex(p=>p.key===t.phase)]||'pt0'}">${t.phase}</span><span class="task-name">${t.name}</span></td>
+      <td style="font-family:var(--mono);font-size:11px;color:var(--text-muted)">${t.start||'—'}</td>
+      <td style="${endStyle}">${t.end||'—'}</td>
+      <td style="font-size:12px;color:var(--text-muted)">${t.person||'—'}</td>
+      <td>${statusCell}</td>
+    </tr>`;
+  }).join('');
   document.getElementById('t-empty').style.display=data.length?'none':'block';
 }
 
@@ -859,7 +982,17 @@ function renderGantt() {
     </div>
   </div>`;
 
+  // phase date fallbacks (used when task has no date)
+  const PHASE_FALLBACK = {
+    'Trước CT': { s: new Date(2026,4,27), e: new Date(2026,5,14) },
+    'Vòng 1':   { s: new Date(2026,5,30), e: new Date(2026,6,7)  },
+    'Vòng 2':   { s: new Date(2026,6,10), e: new Date(2026,6,17) },
+    'Vòng 3':   { s: new Date(2026,6,24), e: new Date(2026,7,1)  },
+    'Chung kết':{ s: new Date(2026,7,7),  e: new Date(2026,7,14) },
+  };
+
   // ── rows ────────────────────────────────────────────────────
+  window._ganttTips = []; // reset tip data array on each render
   let rows = '';
   PHASES.forEach(ph => {
     const phTasks = G.tasks.filter(t => t.phase === ph.key);
@@ -871,14 +1004,26 @@ function renderGantt() {
       <div style="width:${gridW}px;flex-shrink:0;padding:0 10px;font-size:10px;color:var(--text-xs);background:${ph.color}06;display:flex;align-items:center">${PHASE_RANGES[ph.key]}</div>
     </div>`;
 
-    phTasks.forEach(t => {
+    phTasks.forEach((t, ti) => {
       const s  = parseDate(t.start), e = parseDate(t.end)||s;
+      const today = new Date(); today.setHours(0,0,0,0);
+      const isOverdue = !stOf(t.status)==='done' && e && e < today && stOf(t.status) !== 'done';
       const st = stOf(t.status);
-      const barBg = st==='done' ? ph.color : st==='doing' ? '#F59E0B' : ph.color+'80';
-      const barOp = st==='pending' ? '0.5' : '1';
-      const bL = s ? colIdx(s)*COL_W : -999;
-      const bW = s ? bWidth(s,e) : 0;
-      const barLabel = bW > 52 ? `<span style="display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:${bW-12}px">${t.name}</span>` : '';
+      const overdue = st !== 'done' && e && e < today;
+      const barBg = ph.color;
+      const barOp = st==='done' ? '1' : st==='doing' ? '0.75' : '0.4';
+      const borderColor = st==='done' ? '#34D399' : overdue ? '#EF4444' : st==='doing' ? '#F59E0B' : '#94A3B8';
+      const noDate = !s;
+      const fb = PHASE_FALLBACK[ph.key] || PHASE_FALLBACK['Trước CT'];
+      const barS = s || fb.s;
+      const barE = (e && !noDate) ? e : (s ? s : fb.e);
+      const bL = colIdx(barS) * COL_W;
+      const bW = bWidth(barS, barE);
+      const barLabel = bW > 52 ? `<span style="display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:${bW-16}px;padding-left:2px">${t.name}</span>` : '';
+
+      // store tooltip data in flat array — index is unique, no collision possible
+      const tipIdx = window._ganttTips.length;
+      window._ganttTips.push({name:t.name, phase:ph.label, phaseColor:ph.color, status:t.status, start:t.start, end:t.end, person:t.person, detail:t.detail, noDate});
 
       rows += `<div style="display:flex;width:${totalW}px;height:${ROW_H}px;border-bottom:1px solid #F5F7FA" onmouseenter="this.style.background='#F4F8FF';this.querySelector('.g-sticky').style.background='#F4F8FF'" onmouseleave="this.style.background='';this.querySelector('.g-sticky').style.background='var(--surface)'">
         <div class="g-sticky" style="width:${LW}px;flex-shrink:0;height:${ROW_H}px;display:flex;align-items:center;gap:6px;padding:0 8px;border-right:1px solid var(--border);background:var(--surface);position:sticky;left:0;z-index:5">
@@ -890,7 +1035,12 @@ function renderGantt() {
         </div>
         <div style="position:relative;width:${gridW}px;flex-shrink:0;height:${ROW_H}px;overflow:hidden">
           ${todayStripe}
-          ${s ? `<div style="position:absolute;left:${bL}px;width:${bW}px;height:20px;top:8px;border-radius:4px;background:${barBg};opacity:${barOp};display:flex;align-items:center;padding:0 5px;font-size:10px;font-weight:600;color:#fff;z-index:2;overflow:hidden;cursor:default" title="${t.name}${t.start?' · '+t.start:''}${t.end?' → '+t.end:''}">${barLabel}</div>` : ''}
+          <div style="position:absolute;left:${bL}px;width:${bW}px;height:20px;top:8px;border-radius:4px;background:${barBg};opacity:${barOp};border-left:3px solid ${borderColor};display:flex;align-items:center;padding:0 5px;font-size:10px;font-weight:600;color:#fff;z-index:2;overflow:hidden;cursor:default"
+            onmouseenter="showTooltip(event,window._ganttTips[${tipIdx}])"
+            onmousemove="moveTooltip(event)"
+            onmouseleave="hideTooltip()"
+            ontouchstart="tapBar(event,${tipIdx})"
+          >${barLabel}</div>
           ${todayLine}
         </div>
       </div>`;
@@ -910,6 +1060,135 @@ function gotoTab(name) {
   if (name === 'people') buildPersonChart();
   if (name === 'gantt')  renderAndScrollGantt();
 }
+
+// ─── GANTT TOOLTIP ────────────────────────────────────────────
+// ─── SOURCE BADGE (two-tap for mobile) ───────────────────────
+let _badgeReady = false, _badgeTimer;
+const SHEET_URL = 'https://docs.google.com/spreadsheets/d/' + SHEET_ID;
+
+function badgeClick() {
+  if (_badgeReady) {
+    window.open(SHEET_URL, '_blank');
+    _badgeReady = false;
+    clearTimeout(_badgeTimer);
+    return;
+  }
+  // First tap: show hint
+  const isMobile = window.matchMedia('(hover:none)').matches;
+  if (isMobile) {
+    const origText = document.getElementById('sb-text').textContent;
+    document.getElementById('sb-text').textContent = 'Nhấn lần nữa để mở →';
+    _badgeReady = true;
+    _badgeTimer = setTimeout(() => {
+      document.getElementById('sb-text').textContent = origText;
+      _badgeReady = false;
+    }, 2500);
+  } else {
+    // Desktop: open directly on first click
+    window.open(SHEET_URL, '_blank');
+  }
+}
+
+// ─── GANTT TOOLTIP ────────────────────────────────────────────
+let _ttTimeout;
+let _activeTipIdx = -1;
+
+function tapBar(e, idx) {
+  e.stopPropagation();
+  e.preventDefault();
+  const tip = document.getElementById('g-tooltip');
+  if (_activeTipIdx === idx && tip.classList.contains('visible')) {
+    hideTooltip();
+    _activeTipIdx = -1;
+    return;
+  }
+  _activeTipIdx = idx;
+  // Use touch coordinates
+  const touch = e.touches[0] || e.changedTouches[0];
+  const fakeE = { clientX: touch.clientX, clientY: touch.clientY };
+  showTooltip(fakeE, window._ganttTips[idx]);
+}
+
+function showTooltip(e, t) {
+  clearTimeout(_ttTimeout);
+  const tip = document.getElementById('g-tooltip');
+
+  document.getElementById('gtt-name').textContent = t.name;
+
+  const ph = document.getElementById('gtt-phase');
+  ph.textContent = t.phase;
+  ph.style.cssText = `background:${t.phaseColor}18;color:${t.phaseColor};display:inline-flex;align-items:center;gap:4px;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;padding:2px 6px;border-radius:3px`;
+
+  const st = stOf(t.status);
+  const today2 = new Date(); today2.setHours(0,0,0,0);
+  const eDate = parseDate(t.end);
+  const isOvd = st !== 'done' && eDate && eDate < today2;
+  const sb = document.getElementById('gtt-status');
+  if (isOvd) {
+    sb.textContent = 'Quá hạn';
+    sb.className = 'badge';
+    sb.style.cssText = 'background:#FEF2F2;color:#991B1B';
+  } else {
+    sb.textContent = st==='done'?'Done':st==='doing'?'Đang làm':'Chưa bắt đầu';
+    sb.className = 'badge ' + (st==='done'?'b-done':st==='doing'?'b-doing':'b-pending');
+    sb.style.cssText = '';
+  }
+
+  const dateEl = document.getElementById('gtt-date');
+  if (t.noDate) {
+    dateEl.textContent = '(chưa xếp lịch)';
+    dateEl.style.color = 'var(--text-muted)';
+  } else {
+    const d = t.start === t.end || !t.end ? t.start : `${t.start} → ${t.end}`;
+    dateEl.textContent = d || '—';
+    dateEl.style.color = 'var(--text)';
+  }
+
+  document.getElementById('gtt-person').textContent = t.person || '—';
+
+  const detEl = document.getElementById('gtt-detail');
+  if (t.detail) {
+    const firstLine = t.detail.split('\n')[0].replace(/^[-–•]\s*/, '').trim();
+    detEl.textContent = firstLine.length > 80 ? firstLine.slice(0,80)+'…' : firstLine;
+    detEl.style.display = 'block';
+  } else {
+    detEl.style.display = 'none';
+  }
+
+  positionTooltip(e, tip);
+  tip.classList.add('visible');
+}
+
+function positionTooltip(e, tip) {
+  const W = 260, margin = 12;
+  let x = e.clientX + 14;
+  let y = e.clientY + 14;
+  if (x + W + margin > window.innerWidth) x = e.clientX - W - 14;
+  if (y + 200 > window.innerHeight) y = e.clientY - 200;
+  if (y < 8) y = 8;
+  tip.style.left = x + 'px';
+  tip.style.top  = y + 'px';
+}
+
+function moveTooltip(e) {
+  positionTooltip(e, document.getElementById('g-tooltip'));
+}
+
+function hideTooltip() {
+  _ttTimeout = setTimeout(() => {
+    document.getElementById('g-tooltip').classList.remove('visible');
+    _activeTipIdx = -1;
+  }, 80);
+}
+
+// tap anywhere outside tooltip closes it on mobile
+document.addEventListener('touchstart', e => {
+  const tip = document.getElementById('g-tooltip');
+  if (tip.classList.contains('visible') && !tip.contains(e.target)) {
+    tip.classList.remove('visible');
+    _activeTipIdx = -1;
+  }
+});
 
 // ─── BOOT ─────────────────────────────────────────────────────
 loadData();
